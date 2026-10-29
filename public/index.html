@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media Uploads</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: light-dark(#fafafa, #141414);
+      --panel: light-dark(#fff, #1d1d1d);
+      --border: light-dark(#e2e2e2, #333);
+      --muted: light-dark(#6b6b6b, #9a9a9a);
+      --api: light-dark(#2563eb, #6ea0ff);
+      --storage: light-dark(#c2410c, #ff9a5c);
+      --db: light-dark(#7c3aed, #b394ff);
+      --ok: light-dark(#15803d, #4ade80);
+      --warn: light-dark(#a16207, #facc15);
+      --bad: light-dark(#b91c1c, #f87171);
+      --flash: light-dark(#fff3b0, #4a4210);
+    }
+    * { box-sizing: border-box; }
+    body { font: 14px/1.5 system-ui, sans-serif; background: var(--bg); margin: 0; padding: 24px 16px 48px; }
+    main { max-width: 1240px; margin: 0 auto; display: grid; gap: 16px; }
+    h1 { font-size: 1.4rem; margin: 0; }
+    h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 10px; display: flex; gap: 8px; align-items: center; }
+    p.lede { color: var(--muted); margin: 2px 0 0; }
+    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+    button { font: inherit; cursor: pointer; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: inherit; }
+    button.primary { background: var(--api); border-color: var(--api); color: #fff; }
+    progress { flex: 1; min-width: 120px; }
+    #status { color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+    /* Flow steps */
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+    @media (max-width: 700px) { .steps { grid-template-columns: 1fr 1fr; } }
+    .step { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; opacity: 0.55; transition: opacity .2s, border-color .2s; }
+    .step b { display: block; }
+    .step small { color: var(--muted); }
+    .step[data-state="active"] { opacity: 1; border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 30%, transparent); }
+    .step[data-state="done"] { opacity: 1; border-color: var(--ok); }
+    .step[data-state="error"] { opacity: 1; border-color: var(--bad); }
+    .tag { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 4px; color: #fff; }
+    .tag.api { background: var(--api); } .tag.storage { background: var(--storage); } .tag.db { background: var(--db); }
+    #explain { margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 4px; }
+    #explain[hidden] { display: none; }
+
+    /* Network log */
+    #log { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; }
+    #log li { border-bottom: 1px solid var(--border); padding: 4px 0; }
+    #log summary { cursor: pointer; display: grid; grid-template-columns: 64px 70px 1fr 44px 56px; gap: 8px; align-items: baseline; list-style: none; }
+    #log summary::-webkit-details-marker { display: none; }
+    #log .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #log .full { word-break: break-all; color: var(--muted); padding: 4px 0 4px 72px; }
+    .s2 { color: var(--ok); } .s4, .s5 { color: var(--bad); }
+    .empty { color: var(--muted); font-style: italic; }
+
+    /* Explorer tables */
+    .table-wrap { overflow: auto; max-height: 360px; border: 1px solid var(--border); border-radius: 6px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { position: sticky; top: 0; background: var(--panel); font-weight: 600; color: var(--muted); }
+    td.key { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    tr.flash td { animation: flash 2.5s ease-out; }
+    @keyframes flash { from { background: var(--flash); } to { background: transparent; } }
+    .badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid currentColor; }
+    .badge.ok { color: var(--ok); } .badge.warn { color: var(--warn); } .badge.bad { color: var(--bad); } .badge.muted { color: var(--muted); }
+    .legend { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+    /* Gallery */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+    .card img, .card video { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: #0002; display: block; }
+    .card audio { width: 100%; margin-top: 12px; }
+    .meta { padding: 8px 10px; font-size: 12px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Media uploads</h1>
+    <p class="lede">Files go straight from your browser to object storage through a presigned URL. Postgres only stores metadata and the object's key.</p>
+  </header>
+
+  <section class="panel">
+    <div class="row">
+      <input type="file" id="file" accept="image/*,audio/*,video/*">
+      <label><input type="checkbox" id="stepMode" checked> Pause before each step</label>
+      <progress id="progress" value="0" max="1" hidden></progress>
+      <span id="status"></span>
+    </div>
+    <div class="steps" id="steps">
+      <div class="step"><b>1. Request upload</b><span class="tag api">API</span> <span class="tag db">DB</span> <small>row → pending</small></div>
+      <div class="step"><b>2. Upload bytes</b><span class="tag storage">Storage</span> <small>direct PUT</small></div>
+      <div class="step"><b>3. Verify + complete</b><span class="tag api">API</span> <span class="tag storage">HEAD</span> <span class="tag db">DB</span> <small>→ ready</small></div>
+      <div class="step"><b>4. View</b><span class="tag api">API</span> <small>presigned GET</small></div>
+    </div>
+    <div id="explain" hidden>
+      <div id="explainText"></div>
+      <div class="row" style="margin-top:8px"><button class="primary" id="next">Run this step →</button></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Network <span class="dot" style="background:var(--api)"></span>API :3000 <span class="dot" style="background:var(--storage)"></span>Storage :8333
+      <button id="clearLog" style="margin-left:auto">Clear</button></h2>
+    <ul id="log"><li class="empty">Requests appear here. Click one to see the full URL.</li></ul>
+  </section>
+
+  <div class="cols" id="explorer">
+    <section class="panel">
+      <h2><span class="tag db">Postgres</span> table <code>media</code> <span id="dbCount"></span></h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>id</th><th>status</th><th>object</th><th>storage_key</th><th>original_filename</th><th>content_type</th><th>size_bytes</th><th>created_at</th><th>uploaded_at</th></tr></thead>
+        <tbody id="dbRows"></tbody>
+      </table></div>
+      <div class="legend">The "object" column is computed by checking the bucket for each row's key. It isn't stored.</div>
+    </section>
+    <section class="panel">
+      <h2><span class="tag storage">SeaweedFS</span> bucket <code id="bucketName">media</code> <span id="s3Count"></span></h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>key</th><th>DB row</th><th>size</th><th>last_modified</th><th>etag</th></tr></thead>
+        <tbody id="s3Rows"></tbody>
+      </table></div>
+      <div class="legend">An <span class="badge bad">orphan</span> is an object with no row. <code>npm run cleanup</code> removes these, and stale pending rows, after an hour.</div>
+    </section>
+  </div>
+  <section class="panel" id="explorerOff" hidden>
+    <span class="empty">The explorer is disabled. Set <code>ENABLE_EXPLORER=true</code> in <code>.env</code> and restart to see the database and bucket here.</span>
+  </section>
+
+  <section class="panel">
+    <h2>Gallery <small>(status = 'ready' only)</small></h2>
+    <div class="grid" id="grid"></div>
+  </section>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children);
+  return node;
+}
+
+// ---------- Network log ----------
+// Every request the page makes goes through here, so you can see which ones
+// hit the API and which go straight to storage.
+function logRequest({ method, url, status, ms }) {
+  const u = new URL(url, location.href);
+  const target = u.port === location.port ? "api" : "storage";
+  const log = $("log");
+  log.querySelector(".empty")?.remove();
+  const summary = el("summary", {},
+    el("span", { className: `tag ${target}`, textContent: target === "api" ? "API" : "Storage" }),
+    el("span", { className: "mono", textContent: method }),
+    el("span", { className: "mono url", textContent: u.pathname + (u.search ? "?…" : "") }),
+    el("span", { className: `mono s${String(status)[0]}`, textContent: status || "ERR" }),
+    el("span", { className: "mono", textContent: `${ms} ms`, style: "color:var(--muted)" }),
+  );
+  const details = el("details", {}, summary, el("div", { className: "mono full", textContent: u.href }));
+  log.prepend(el("li", {}, details));
+}
+$("clearLog").onclick = () => $("log").replaceChildren(el("li", { className: "empty", textContent: "Cleared." }));
+
+async function api(path, options = {}) {
+  const t0 = performance.now();
+  const res = await fetch(`/api${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...options.headers },
+  });
+  if (!options.quiet) logRequest({ method: options.method ?? "GET", url: res.url, status: res.status, ms: Math.round(performance.now() - t0) });
+  if (res.status === 204) return null;
+  const body = await res.json();
+  if (!res.ok) throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status });
+  return body;
+}
+
+// XHR rather than fetch so we can show upload progress.
+function putWithProgress(url, file, headers, onProgress) {
+  const t0 = performance.now();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onloadend = () => {
+      logRequest({ method: "PUT", url, status: xhr.status, ms: Math.round(performance.now() - t0) });
+      xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Storage returned ${xhr.status || "a network error"}`));
+    };
+    xhr.send(file);
+  });
+}
+
+// ---------- Step-by-step flow ----------
+const STEPS = [
+  `<b>Step 1.</b> The browser sends only the file's <i>description</i> (name, type, size) to the API. The API checks it against the allowlist, generates a random object key, <b>INSERTs a row with <code>status='pending'</code></b> and returns a presigned PUT URL. Watch the Postgres table: a new row appears, and its object is <span class="badge warn">missing</span> because nothing has been uploaded yet.`,
+  `<b>Step 2.</b> The browser PUTs the bytes <b>directly to SeaweedFS</b> (port 8333) with the presigned URL. The API server isn't involved. The URL's signature covers Content-Type and Content-Length, so storage rejects anything that differs. Watch the bucket: the object appears, while the row is <i>still pending</i>.`,
+  `<b>Step 3.</b> The browser tells the API it's done. The API doesn't take its word for it: it sends a <b>HEAD request for the object</b> to check the size and type, then <b>UPDATEs the row to <code>status='ready'</code></b> and sets <code>uploaded_at</code>.`,
+  `<b>Step 4.</b> The gallery asks the API for media. Only <code>ready</code> rows are returned, each with a <b>fresh presigned GET URL</b> minted for this request (valid for 15 minutes). The browser loads the file straight from storage.`,
+];
+
+function setStep(i, state) {
+  $("steps").children[i].dataset.state = state;
+}
+function resetSteps() {
+  for (const s of $("steps").children) delete s.dataset.state;
+}
+
+// In step mode, explain what's about to happen and wait for a click.
+function gate(i) {
+  setStep(i, "active");
+  if (!$("stepMode").checked) return Promise.resolve();
+  $("status").textContent = `Paused before step ${i + 1}`;
+  $("explainText").innerHTML = STEPS[i];
+  $("explain").hidden = false;
+  $("next").focus();
+  return new Promise((resolve) => {
+    $("next").onclick = () => { $("explain").hidden = true; resolve(); };
+  });
+}
+
+async function runStep(i, fn) {
+  await gate(i);
+  try {
+    const result = await fn();
+    setStep(i, "done");
+    await refreshExplorer();
+    return result;
+  } catch (err) {
+    setStep(i, "error");
+    await refreshExplorer();
+    throw err;
+  }
+}
+
+async function upload(file) {
+  resetSteps();
+  const progress = $("progress");
+  $("file").disabled = true;
+  try {
+    const { id, upload } = await runStep(0, () => {
+      $("status").textContent = "Requesting upload URL…";
+      return api("/uploads", {
+        method: "POST",
+        body: JSON.stringify({ filename: file.name, contentType: file.type, sizeBytes: file.size }),
+      });
+    });
+
+    await runStep(1, async () => {
+      $("status").textContent = "Uploading…";
+      progress.hidden = false;
+      progress.value = 0;
+      await putWithProgress(upload.url, file, upload.headers, (p) => (progress.value = p));
+      progress.hidden = true;
+    });
+
+    await runStep(2, () => {
+      $("status").textContent = "Verifying…";
+      return api(`/uploads/${id}/complete`, { method: "POST" });
+    });
+
+    await runStep(3, () => {
+      $("status").textContent = "Loading gallery…";
+      return renderGallery();
+    });
+    $("status").textContent = `Uploaded ${file.name}`;
+  } catch (err) {
+    $("status").textContent = `Failed: ${err.message}`;
+  } finally {
+    progress.hidden = true;
+    $("explain").hidden = true;
+    $("file").disabled = false;
+    $("file").value = "";
+  }
+}
+
+// ---------- Explorer ----------
+let explorerEnabled = true;
+let firstLoadDone = false;
+const lastSeen = new Map(); // row/object identity -> serialized state, for change highlighting
+
+// True if this row/object is new or different since the last refresh.
+// Nothing flashes on the initial load.
+function changed(id, value) {
+  const s = JSON.stringify(value);
+  const isChanged = firstLoadDone && lastSeen.get(id) !== s;
+  lastSeen.set(id, s);
+  return isChanged;
+}
+
+const fmtTime = (t) => (t ? new Date(t).toLocaleTimeString() : null);
+const badge = (cls, text) => el("span", { className: `badge ${cls}`, textContent: text });
+const cell = (content, className = "") => {
+  const td = el("td", { className });
+  if (content == null) td.append(el("span", { className: "empty", textContent: "NULL" }));
+  else td.append(content);
+  return td;
+};
+
+async function refreshExplorer() {
+  if (!explorerEnabled) return;
+  let db, s3;
+  try {
+    [db, s3] = await Promise.all([api("/explorer/db", { quiet: true }), api("/explorer/storage", { quiet: true })]);
+  } catch (err) {
+    if (err.status === 404) {
+      explorerEnabled = false;
+      $("explorer").hidden = true;
+      $("explorerOff").hidden = false;
+      return;
+    }
+    throw err;
+  }
+
+  const keysInBucket = new Map(s3.objects.map((o) => [o.key, o]));
+  const keysInDb = new Map(db.rows.map((r) => [r.storage_key, r]));
+
+  $("dbCount").textContent = `${db.rows.length} row(s)`;
+  $("dbRows").replaceChildren(...(db.rows.length ? db.rows.map((r) => {
+    const hasObject = keysInBucket.has(r.storage_key);
+    const objectBadge = hasObject
+      ? badge(r.status === "ready" ? "ok" : "warn", r.status === "ready" ? "present" : "present, unverified")
+      : badge(r.status === "ready" ? "bad" : "warn", "missing");
+    const tr = el("tr", {},
+      cell(el("span", { className: "mono", textContent: r.id.slice(0, 8), title: r.id })),
+      cell(badge(r.status === "ready" ? "ok" : "warn", r.status)),
+      cell(objectBadge),
+      cell(el("span", { className: "mono", textContent: r.storage_key, title: r.storage_key }), "key"),
+      cell(r.original_filename),
+      cell(el("span", { className: "mono", textContent: r.content_type })),
+      cell(String(r.size_bytes)),
+      cell(fmtTime(r.created_at)),
+      cell(fmtTime(r.uploaded_at)),
+    );
+    if (changed(`row:${r.id}`, { ...r, hasObject })) tr.className = "flash";
+    return tr;
+  }) : [el("tr", {}, el("td", { colSpan: 9, className: "empty", textContent: "No rows" }))]));
+
+  $("bucketName").textContent = s3.bucket;
+  $("s3Count").textContent = `${s3.objects.length} object(s)`;
+  $("s3Rows").replaceChildren(...(s3.objects.length ? s3.objects.map((o) => {
+    const row = keysInDb.get(o.key);
+    const tr = el("tr", {},
+      cell(el("span", { className: "mono", textContent: o.key, title: o.key }), "key"),
+      cell(row ? badge(row.status === "ready" ? "ok" : "warn", `${row.id.slice(0, 8)} (${row.status})`) : badge("bad", "orphan")),
+      cell(String(o.sizeBytes)),
+      cell(fmtTime(o.lastModified)),
+      cell(el("span", { className: "mono", textContent: (o.etag ?? "").replaceAll('"', "").slice(0, 10) })),
+    );
+    if (changed(`obj:${o.key}`, { ...o, linked: !!row })) tr.className = "flash";
+    return tr;
+  }) : [el("tr", {}, el("td", { colSpan: 5, className: "empty", textContent: "Bucket is empty" }))]));
+
+  firstLoadDone = true;
+}
+
+// ---------- Gallery ----------
+function preview(item) {
+  const kind = item.contentType.split("/")[0];
+  const media = document.createElement(kind === "image" ? "img" : kind);
+  media.src = item.url;
+  if (kind === "image") { media.alt = item.filename; media.loading = "lazy"; }
+  else { media.controls = true; media.preload = "metadata"; }
+  return media;
+}
+
+function formatSize(bytes) {
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+  return `${bytes.toFixed(i ? 1 : 0)} ${units[i]}`;
+}
+
+async function renderGallery() {
+  const items = await api("/media");
+  $("grid").replaceChildren(...(items.length ? items.map((item) => {
+    const del = el("button", { textContent: "Delete" });
+    del.onclick = async () => {
+      await api(`/media/${item.id}`, { method: "DELETE" });
+      await Promise.all([renderGallery(), refreshExplorer()]);
+    };
+    return el("div", { className: "card" },
+      preview(item),
+      el("div", { className: "meta" }, el("span", { textContent: `${item.filename} · ${formatSize(item.sizeBytes)}`, title: item.filename }), del),
+    );
+  }) : [el("span", { className: "empty", textContent: "Nothing uploaded yet." })]));
+}
+
+$("file").addEventListener("change", (e) => e.target.files[0] && upload(e.target.files[0]));
+
+renderGallery();
+refreshExplorer();
+// Poll so changes made elsewhere (cleanup job, another tab, curl) show up too.
+setInterval(() => document.visibilityState === "visible" && refreshExplorer().catch(() => {}), 3000);
+</script>
+</body>
+</html>
